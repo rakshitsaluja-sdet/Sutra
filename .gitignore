@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+generated/*
+!generated/.gitkeep
+!generated/tsconfig.json
+test-results/
+playwright-report/
+.playwright-mcp/
+*.log
+.DS_Store
