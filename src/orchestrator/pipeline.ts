@@ -29,6 +29,7 @@ import { runSandboxRunner } from '../stages/05-sandbox-runner/index.js';
 import { runSelfHealer } from '../stages/06-self-healer/index.js';
 import { runReportWriteback } from '../stages/07-report-writeback/index.js';
 import { writeFileEnsuringDir } from '../utils/fsSafe.js';
+import { acquirePipelineLock } from './lock.js';
 import { logger } from '../utils/logger.js';
 
 export interface PipelineOptions {
@@ -92,6 +93,18 @@ function cachedTestCaseToRunnable(cached: CachedTestCase, storyLineageId: Lineag
 }
 
 export async function runPipeline(options: PipelineOptions): Promise<void> {
+  // Serialize runs on the shared state files — a second concurrent run on the same
+  // machine is refused (or a stale lock from a crashed run is reclaimed) so two
+  // pipelines can never interleave writes to the cache/registry/graph.
+  const release = await acquirePipelineLock(options.inputPath);
+  try {
+    await runPipelineInner(options);
+  } finally {
+    await release();
+  }
+}
+
+async function runPipelineInner(options: PipelineOptions): Promise<void> {
   const config = loadConfig();
   const graph = await loadOrCreateGraph(options.inputPath);
   const port = buildXraySyncPort(config);
