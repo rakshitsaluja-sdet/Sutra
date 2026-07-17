@@ -3,10 +3,32 @@
 Kiwi TCMS is the **free, self-hosted** test-management backend for Sutra's "Case 2"
 — the same role Xray plays, behind the same `XraySyncPort` interface, at $0 forever.
 
-> **Status:** this sets up Kiwi and proves Sutra can reach it. The **adapter that
-> actually writes test cases/runs into Kiwi is not built yet** — so when you first
-> log in, Kiwi will be *empty*. The "where things land" section below describes
-> where they'll appear **once the adapter is built**.
+> **Status:** the Kiwi adapter is **built and verified live** — the pipeline can
+> now write Products, Test Plans, Test Cases and Test Runs into Kiwi behind the
+> same `XraySyncPort` as Xray. Run the pipeline with `TCMS_BACKEND=kiwi` (below)
+> to populate it; the "where things land" section maps each artifact to its place
+> in the UI.
+
+## Run the pipeline against Kiwi
+
+With Kiwi up and `KIWI_*` set in `.env`, add one line:
+
+```
+TCMS_BACKEND=kiwi
+```
+
+Then run the pipeline as usual:
+
+```bash
+npm run pipeline -- --brd ./samples/sample-brd.md
+```
+
+Everything gets filed under a Kiwi **Product** (named by `KIWI_PRODUCT`, default
+`Sutra`). Mapping: BRD grouping → **Test Plan**, each generated case → **Test
+Case**, the execution → a **Test Run** with per-case PASSED/FAILED and the
+evidence-archive path recorded as a comment. Superseded cases are **retired
+(status DISABLED) and tagged `sutra-superseded`/`sutra-clause-removed`, never
+deleted** — the same never-destroy philosophy as the Xray backend.
 
 ---
 

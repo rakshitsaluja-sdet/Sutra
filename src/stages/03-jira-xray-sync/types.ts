@@ -1,5 +1,8 @@
 import type { TestCase } from '../02-test-case-designer/schema.js';
 
+/** Which test-management backend a run targets. Also the namespace key for cache/registry state. */
+export type SyncMode = 'stub' | 'live' | 'kiwi';
+
 export interface XrayTestIssueRef {
   /** Jira issue key, e.g. "XRAY-1234", or a fabricated "STUB-TC-1" key in stub mode. */
   key: string;
@@ -38,7 +41,7 @@ export interface SupersedeTestIssueInput {
  * Test Plan instead of each run being an orphaned, unlinked record.
  */
 export interface XraySyncPort {
-  readonly mode: 'stub' | 'live';
+  readonly mode: SyncMode;
   pushTestCase(input: PushTestCaseInput): Promise<XrayTestIssueRef>;
   createTestSet(input: CreateGroupInput): Promise<XrayTestIssueRef>;
   addTestsToTestSet(testSetIssueId: string, testIssueIds: string[]): Promise<void>;

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { writeFileEnsuringDir } from '../../utils/fsSafe.js';
 import { logger } from '../../utils/logger.js';
+import type { SyncMode } from './types.js';
 
 // Deliberately at the project root, not under generated/ — this must survive
 // across runs (generated/ is treated as regenerated pipeline output), and is
@@ -28,7 +29,7 @@ interface RegistryFile {
  * never be mistakenly reused as if they were real Xray issue keys after
  * switching XRAY_MODE to live for the same input file.
  */
-export function registryKeyForInput(inputSourceFile: string, mode: 'stub' | 'live'): string {
+export function registryKeyForInput(inputSourceFile: string, mode: SyncMode): string {
   return `${mode}:${inputSourceFile.replace(/\\/g, '/').toLowerCase()}`;
 }
 

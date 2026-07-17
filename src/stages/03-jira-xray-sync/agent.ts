@@ -3,13 +3,21 @@ import { addNode } from '../../lineage/graph.js';
 import type { LineageGraph, LineageId } from '../../lineage/types.js';
 import { logger } from '../../utils/logger.js';
 import type { DesignedTestCase } from '../02-test-case-designer/agent.js';
+import { KiwiClient } from './kiwiClient.js';
 import { StubXrayClient } from './stubXrayClient.js';
-import type { XraySyncPort } from './types.js';
+import type { SyncMode, XraySyncPort } from './types.js';
 import { XrayClient } from './xrayClient.js';
 import { getRegistryEntry, registryKeyForInput, saveRegistryEntry } from './xrayRegistry.js';
 
 export function buildXraySyncPort(config: AppConfig): XraySyncPort {
-  return config.xray.mode === 'live' ? new XrayClient(config) : new StubXrayClient();
+  switch (config.backend) {
+    case 'kiwi':
+      return new KiwiClient(config);
+    case 'xray':
+      return new XrayClient(config);
+    default:
+      return new StubXrayClient();
+  }
 }
 
 export interface SyncedTestCase extends DesignedTestCase {
@@ -73,7 +81,7 @@ function upsertGroupingNode(
   type: 'xray-test-set' | 'xray-test-plan',
   key: string,
   storyLineageIds: LineageId[],
-  mode: 'stub' | 'live',
+  mode: SyncMode,
 ): void {
   const existingNode = Object.values(graph.nodes).find((n) => n.type === type && n.payloadRef === key);
   if (existingNode) {

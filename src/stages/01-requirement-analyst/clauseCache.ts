@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { writeFileEnsuringDir } from '../../utils/fsSafe.js';
 import { logger } from '../../utils/logger.js';
 import type { LineageId } from '../../lineage/types.js';
+import type { SyncMode } from '../03-jira-xray-sync/types.js';
 import type { UserStory } from './schema.js';
 import type { TestCase } from '../02-test-case-designer/schema.js';
 
@@ -56,7 +57,7 @@ const EMPTY_FILE: ClauseCacheFile = { version: 1, entries: {} };
  * mistaken for real ones after switching XRAY_MODE to live for the same
  * input file — same rationale as xrayRegistry.ts's registryKeyForInput.
  */
-export function clauseCacheKey(inputSourceFile: string, mode: 'stub' | 'live', clauseId: string): string {
+export function clauseCacheKey(inputSourceFile: string, mode: SyncMode, clauseId: string): string {
   return `${mode}:${inputSourceFile.replace(/\\/g, '/').toLowerCase()}#${clauseId}`;
 }
 
@@ -82,7 +83,7 @@ export async function saveCacheEntry(key: string, entry: ClauseCacheEntry): Prom
 }
 
 /** All entries for a given input file (any clause, any status) — used for delete/rename detection across a run. */
-export async function getEntriesForInput(inputSourceFile: string, mode: 'stub' | 'live'): Promise<ClauseCacheEntry[]> {
+export async function getEntriesForInput(inputSourceFile: string, mode: SyncMode): Promise<ClauseCacheEntry[]> {
   const cache = await loadCache();
   const prefix = `${mode}:${inputSourceFile.replace(/\\/g, '/').toLowerCase()}#`;
   return Object.entries(cache.entries)

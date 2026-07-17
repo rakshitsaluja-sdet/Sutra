@@ -16,6 +16,20 @@ const rawSchema = z.object({
   XRAY_PROJECT_KEY: z.string().optional().or(z.literal('')),
   XRAY_MODE: z.enum(['stub', 'live']).default('stub'),
 
+  // Test-management backend selector. When unset, derived from XRAY_MODE for
+  // backward compat (live -> xray, stub -> stub). 'kiwi' targets a Kiwi TCMS.
+  TCMS_BACKEND: z.enum(['stub', 'xray', 'kiwi']).optional().or(z.literal('')),
+  KIWI_BASE_URL: z.string().optional().or(z.literal('')),
+  KIWI_USERNAME: z.string().optional().or(z.literal('')),
+  KIWI_PASSWORD: z.string().optional().or(z.literal('')),
+  KIWI_PRODUCT: z.string().optional().or(z.literal('')),
+  // Kiwi ships a self-signed cert on localhost; default to not verifying it.
+  // Set to 'false' for a Kiwi behind a real, trusted certificate.
+  KIWI_TLS_INSECURE: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
+
   PLAYWRIGHT_MCP_HEADLESS: z
     .string()
     .default('true')
@@ -42,6 +56,8 @@ export interface AppConfig {
   /** Unset when relying on an existing OAuth session instead of a metered API key. */
   anthropicApiKey?: string;
   claudeModel: string;
+  /** Which test-management backend this run targets — drives buildXraySyncPort. */
+  backend: 'stub' | 'xray' | 'kiwi';
   xray: {
     mode: 'stub' | 'live';
     jiraBaseUrl?: string;
@@ -50,6 +66,13 @@ export interface AppConfig {
     clientId?: string;
     clientSecret?: string;
     projectKey?: string;
+  };
+  kiwi?: {
+    baseUrl: string;
+    username: string;
+    password: string;
+    tlsInsecure: boolean;
+    productName: string;
   };
   playwrightMcp: {
     headless: boolean;
@@ -65,7 +88,19 @@ export interface AppConfig {
   };
 }
 
-function buildXrayConfig(raw: RawEnv): AppConfig['xray'] {
+interface ResolvedBackend {
+  backend: AppConfig['backend'];
+  xray: AppConfig['xray'];
+  kiwi?: AppConfig['kiwi'];
+}
+
+/**
+ * Picks the test-management backend and its config, never running half-
+ * authenticated: if the chosen backend's credentials are incomplete it falls
+ * back to stub with a warning. TCMS_BACKEND wins; absent it, the legacy
+ * XRAY_MODE mapping (live -> xray, stub -> stub) applies for backward compat.
+ */
+function resolveBackend(raw: RawEnv): ResolvedBackend {
   const xrayVars = {
     jiraBaseUrl: raw.JIRA_BASE_URL || undefined,
     jiraEmail: raw.JIRA_EMAIL || undefined,
@@ -74,21 +109,37 @@ function buildXrayConfig(raw: RawEnv): AppConfig['xray'] {
     clientSecret: raw.XRAY_CLIENT_SECRET || undefined,
     projectKey: raw.XRAY_PROJECT_KEY || undefined,
   };
+  const hasAllXrayCreds = Object.values(xrayVars).every((v) => v !== undefined);
+  const hasKiwiCreds = Boolean(raw.KIWI_BASE_URL && raw.KIWI_USERNAME && raw.KIWI_PASSWORD);
 
-  const hasAllCreds = Object.values(xrayVars).every((v) => v !== undefined);
+  let backend: AppConfig['backend'] = raw.TCMS_BACKEND || (raw.XRAY_MODE === 'live' ? 'xray' : 'stub');
 
-  if (raw.XRAY_MODE === 'live' && !hasAllCreds) {
+  if (backend === 'xray' && !hasAllXrayCreds) {
     // eslint-disable-next-line no-console
     console.warn(
-      '[config] XRAY_MODE=live was requested but one or more Jira/Xray credentials are ' +
-        'missing. Forcing XRAY_MODE=stub — the pipeline never runs half-authenticated. ' +
-        'Set JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, XRAY_CLIENT_ID, XRAY_CLIENT_SECRET, ' +
-        'and XRAY_PROJECT_KEY to enable live mode.',
+      '[config] backend=xray but one or more Jira/Xray credentials are missing. Forcing stub. ' +
+        'Set JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, XRAY_CLIENT_ID, XRAY_CLIENT_SECRET, XRAY_PROJECT_KEY.',
     );
-    return { mode: 'stub', ...xrayVars };
+    backend = 'stub';
+  }
+  if (backend === 'kiwi' && !hasKiwiCreds) {
+    // eslint-disable-next-line no-console
+    console.warn('[config] backend=kiwi but KIWI_BASE_URL / KIWI_USERNAME / KIWI_PASSWORD are incomplete. Forcing stub.');
+    backend = 'stub';
   }
 
-  return { mode: raw.XRAY_MODE, ...xrayVars };
+  const kiwi =
+    backend === 'kiwi'
+      ? {
+          baseUrl: raw.KIWI_BASE_URL!,
+          username: raw.KIWI_USERNAME!,
+          password: raw.KIWI_PASSWORD!,
+          tlsInsecure: raw.KIWI_TLS_INSECURE,
+          productName: raw.KIWI_PRODUCT || raw.XRAY_PROJECT_KEY || 'Sutra',
+        }
+      : undefined;
+
+  return { backend, xray: { mode: backend === 'xray' ? 'live' : 'stub', ...xrayVars }, kiwi };
 }
 
 let cached: AppConfig | undefined;
@@ -107,10 +158,13 @@ export function loadConfig(): AppConfig {
     // eslint-disable-next-line no-console
     console.warn('[config] ANTHROPIC_API_KEY not set — relying on an existing OAuth session (e.g. Claude Code login) instead.');
   }
+  const resolved = resolveBackend(raw);
   cached = {
     anthropicApiKey: raw.ANTHROPIC_API_KEY || undefined,
     claudeModel: raw.CLAUDE_MODEL,
-    xray: buildXrayConfig(raw),
+    backend: resolved.backend,
+    xray: resolved.xray,
+    kiwi: resolved.kiwi,
     playwrightMcp: { headless: raw.PLAYWRIGHT_MCP_HEADLESS },
     sandbox: { dockerImage: raw.SANDBOX_DOCKER_IMAGE, timeoutMs: raw.SANDBOX_TIMEOUT_MS },
     targetBaseUrl: raw.TARGET_BASE_URL,
