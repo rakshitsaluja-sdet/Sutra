@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
 export const GeneratedFileSchema = z.object({
-  relativePath: z.string().describe('Path relative to generated/, e.g. "features/tc-1/login.feature"'),
+  relativePath: z
+    .string()
+    .describe('Path relative to generated/, e.g. "features/2-1-successful-login/tc-1/login.feature" — feature files use the given Stable path key, not the Xray key'),
   content: z.string(),
 });
 

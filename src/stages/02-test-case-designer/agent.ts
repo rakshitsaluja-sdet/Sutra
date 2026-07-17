@@ -16,6 +16,7 @@ export interface DesignedTestCase {
 
 export async function runTestCaseDesigner(
   stories: Array<{ lineageId: LineageId; story: UserStory }>,
+  clauseId: string,
   graph: LineageGraph,
   config: AppConfig,
 ): Promise<DesignedTestCase[]> {
@@ -40,6 +41,7 @@ export async function runTestCaseDesigner(
         parentIds: [storyLineageId],
         createdBy: 'test-case-designer',
         payloadRef: `generated/lineage/testcases.json#${testCase.id}`,
+        clauseId,
         metadata: { category: testCase.category, priority: testCase.priority, storyId: story.id },
       });
       results.push({ lineageId, storyLineageId, storyId: story.id, testCase });

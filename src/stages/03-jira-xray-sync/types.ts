@@ -19,6 +19,15 @@ export interface CreateGroupInput {
   testIssueIds: string[];
 }
 
+export interface SupersedeTestIssueInput {
+  oldKey: string;
+  oldIssueId?: string;
+  /** Unset when the reason is 'clause-removed' — nothing replaced it, it was just retired. */
+  newKey?: string;
+  testSetIssueId?: string;
+  reason: 'content-changed' | 'clause-removed';
+}
+
 /**
  * Behind this interface, live and stub implementations are interchangeable —
  * switching XRAY_MODE requires zero code changes anywhere that consumes this port.
@@ -35,4 +44,7 @@ export interface XraySyncPort {
   addTestsToTestSet(testSetIssueId: string, testIssueIds: string[]): Promise<void>;
   createTestPlan(input: CreateGroupInput): Promise<XrayTestIssueRef>;
   linkTestExecutionToPlan(testPlanIssueId: string, testExecutionIssueId: string): Promise<void>;
+  /** Never deletes — labels + comments the old issue and pulls it out of the active Test Set, preserving its history. */
+  supersedeTestIssue(input: SupersedeTestIssueInput): Promise<void>;
+  removeTestsFromTestSet(testSetIssueId: string, testIssueIds: string[]): Promise<void>;
 }

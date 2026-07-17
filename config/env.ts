@@ -28,6 +28,12 @@ const rawSchema = z.object({
     .transform((v) => Number.parseInt(v, 10)),
 
   TARGET_BASE_URL: z.string().url().default('https://the-internet.herokuapp.com'),
+
+  // Optional: an existing test account's credentials, made available to the Script
+  // Generator's prompt so it authenticates with real values instead of guessing or
+  // fabricating them. Never used to register/create new accounts.
+  TEST_USER_EMAIL: z.string().optional().or(z.literal('')),
+  TEST_USER_PASSWORD: z.string().optional().or(z.literal('')),
 });
 
 type RawEnv = z.infer<typeof rawSchema>;
@@ -53,6 +59,10 @@ export interface AppConfig {
     timeoutMs: number;
   };
   targetBaseUrl: string;
+  testUser?: {
+    email: string;
+    password: string;
+  };
 }
 
 function buildXrayConfig(raw: RawEnv): AppConfig['xray'] {
@@ -104,6 +114,7 @@ export function loadConfig(): AppConfig {
     playwrightMcp: { headless: raw.PLAYWRIGHT_MCP_HEADLESS },
     sandbox: { dockerImage: raw.SANDBOX_DOCKER_IMAGE, timeoutMs: raw.SANDBOX_TIMEOUT_MS },
     targetBaseUrl: raw.TARGET_BASE_URL,
+    testUser: raw.TEST_USER_EMAIL && raw.TEST_USER_PASSWORD ? { email: raw.TEST_USER_EMAIL, password: raw.TEST_USER_PASSWORD } : undefined,
   };
   return cached;
 }

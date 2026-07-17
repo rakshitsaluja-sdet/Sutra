@@ -19,6 +19,7 @@ export interface AddNodeInput<M extends Record<string, unknown>> {
   payloadRef: string;
   metadata?: M;
   supersedes?: LineageId;
+  clauseId?: string;
 }
 
 /** Adds a node and returns its generated id. Throws if a parent id doesn't exist yet. */
@@ -45,6 +46,7 @@ export function addNode<M extends Record<string, unknown> = Record<string, unkno
     status: 'active',
     supersedes: input.supersedes,
     payloadRef: input.payloadRef,
+    clauseId: input.clauseId,
     metadata: input.metadata ?? ({} as M),
   };
   graph.nodes[id] = node;
@@ -75,6 +77,11 @@ export function getDescendants(graph: LineageGraph, id: LineageId): LineageNode[
     result.push(...getDescendants(graph, child.id));
   }
   return result;
+}
+
+/** All nodes tracing back to a given clause — used to markStale a whole clause's chain when it's deleted from the BRD. */
+export function getNodesByClauseId(graph: LineageGraph, clauseId: string): LineageNode[] {
+  return Object.values(graph.nodes).filter((n) => n.clauseId === clauseId);
 }
 
 /** Marks a node and everything downstream of it as stale (e.g. an upstream BRD clause changed). */

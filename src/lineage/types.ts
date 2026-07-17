@@ -45,6 +45,8 @@ export interface LineageNode<M extends Record<string, unknown> = Record<string, 
   supersedes?: LineageId;
   /** Pointer at the real artifact (file path, Xray key, run id) — the graph stays small and diffable. */
   payloadRef: string;
+  /** Which BRD clause (or 'root' for user-story mode) this node traces back to — cheap querying without digging through metadata. */
+  clauseId?: string;
   metadata: M;
 }
 

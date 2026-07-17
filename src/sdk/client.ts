@@ -37,6 +37,9 @@ export async function runAgent<T>(input: RunAgentInput<T>): Promise<T> {
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       outputFormat: { type: 'json_schema', schema: jsonSchema },
+      // Without this, a process-exit failure surfaces only as "exited with code 1"
+      // with zero diagnostic detail — this is the only way to see the real cause.
+      stderr: (data: string) => logger.error({ stage: input.stageName, sdkStderr: data.trim() }, 'agent process stderr'),
     },
   });
 

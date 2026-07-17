@@ -1,7 +1,8 @@
 import { GraphQLClient, gql } from 'graphql-request';
 import type { AppConfig } from '../../../config/env.js';
 import { logger } from '../../utils/logger.js';
-import type { CreateGroupInput, PushTestCaseInput, XraySyncPort, XrayTestIssueRef } from './types.js';
+import { addComment, addLabel } from './jiraRestClient.js';
+import type { CreateGroupInput, PushTestCaseInput, SupersedeTestIssueInput, XraySyncPort, XrayTestIssueRef } from './types.js';
 import { authenticateXray } from './xrayAuth.js';
 
 const GRAPHQL_URL = 'https://xray.cloud.getxray.app/api/v2/graphql';
@@ -57,6 +58,12 @@ const ADD_EXECUTIONS_TO_TEST_PLAN_MUTATION = gql`
       addedTestExecutions
       warning
     }
+  }
+`;
+
+const REMOVE_TESTS_FROM_TEST_SET_MUTATION = gql`
+  mutation RemoveTestsFromTestSet($issueId: String!, $testIssueIds: [String]!) {
+    removeTestsFromTestSet(issueId: $issueId, testIssueIds: $testIssueIds)
   }
 `;
 
@@ -156,5 +163,42 @@ export class XrayClient implements XraySyncPort {
       testExecIssueIds: [testExecutionIssueId],
     });
     logger.info({ testPlanIssueId, testExecutionIssueId }, '[jira-xray-sync] (live) test execution linked to test plan');
+  }
+
+  async removeTestsFromTestSet(testSetIssueId: string, testIssueIds: string[]): Promise<void> {
+    if (testIssueIds.length === 0) return;
+    const client = await this.client();
+    await client.request(REMOVE_TESTS_FROM_TEST_SET_MUTATION, { issueId: testSetIssueId, testIssueIds });
+    logger.info({ testSetIssueId, removedCount: testIssueIds.length }, '[jira-xray-sync] (live) tests removed from test set');
+  }
+
+  /**
+   * Never deletes. Xray Cloud's GraphQL API has no generic updateTest
+   * mutation — editing steps/title in place would need a step-id-tracking
+   * sequence (removeAllTestSteps + N x addTestStep) plus a separate Jira
+   * REST call for the title, three extra API surfaces this codebase doesn't
+   * otherwise need. Mark-superseded-and-create-new is simpler and preserves
+   * the old issue's history, consistent with the lineage graph's own
+   * never-delete-only-markStale philosophy.
+   */
+  async supersedeTestIssue(input: SupersedeTestIssueInput): Promise<void> {
+    const label = input.reason === 'clause-removed' ? 'sutra-clause-removed' : 'sutra-superseded';
+    const comment =
+      input.reason === 'clause-removed'
+        ? 'Superseded by Sutra — the source BRD clause this test traced back to was removed.'
+        : input.newKey
+          ? `Superseded by Sutra regeneration — see ${input.newKey}.`
+          : 'Superseded by Sutra regeneration — its source clause changed and was fully regenerated; see the current test cases for that section.';
+
+    await addLabel(input.oldKey, label, this.config);
+    await addComment(input.oldKey, comment, this.config);
+
+    if (input.testSetIssueId && input.oldIssueId) {
+      await this.removeTestsFromTestSet(input.testSetIssueId, [input.oldIssueId]);
+    } else if (input.testSetIssueId) {
+      logger.warn({ oldKey: input.oldKey }, '[jira-xray-sync] (live) no issueId on hand for superseded test — left in the active Test Set, cleanup will need a manual pass');
+    }
+
+    logger.info({ oldKey: input.oldKey, newKey: input.newKey, reason: input.reason }, '[jira-xray-sync] (live) test issue superseded');
   }
 }

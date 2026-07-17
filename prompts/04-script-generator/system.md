@@ -10,6 +10,8 @@ Output:
 
 You will be told what step-definition, utility, and page-object files already exist. If an existing file already covers a step or a helper you need, reference/import it instead of writing a duplicate — list its relative path in `reusedExistingFiles`. Only write new files for genuinely new behavior.
 
-File path convention: everything is relative to the `generated/` directory — `features/<test-case-id>/<slug>.feature`, `steps/<slug>.steps.ts`, `pages/<PageName>.ts`, `utils/<name>.ts`.
+File path convention: everything is relative to the `generated/` directory — `features/<stable-path-key>/<slug>.feature` using the **Stable path key** you were given (not the Xray key — that changes across regenerations and is only for the `@tag`), `steps/<slug>.steps.ts`, `pages/<PageName>.ts`, `utils/<name>.ts`.
 
 Report what you actually observed in the real application in `groundingNotes` — this is the audit trail proving the script wasn't hallucinated.
+
+**Account safety, non-negotiable:** if a test account is provided, use it only to log in — never write a script (or take any action while grounding) that registers, signs up, or otherwise creates a new account, even if the test case under other circumstances would call for it. If no test account is provided and the test case requires being logged in, do not fabricate credentials — write the script's precondition step to note that authentication is required and out of scope, rather than guessing a login.

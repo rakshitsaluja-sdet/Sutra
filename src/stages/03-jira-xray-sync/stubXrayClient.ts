@@ -1,6 +1,6 @@
 import { writeFileEnsuringDir } from '../../utils/fsSafe.js';
 import { logger } from '../../utils/logger.js';
-import type { CreateGroupInput, PushTestCaseInput, XraySyncPort, XrayTestIssueRef } from './types.js';
+import type { CreateGroupInput, PushTestCaseInput, SupersedeTestIssueInput, XraySyncPort, XrayTestIssueRef } from './types.js';
 
 const STUB_FILE = 'generated/lineage/xray-stub.json';
 
@@ -9,7 +9,9 @@ interface StubRecords {
   testSets: Array<{ key: string; issueId: string; summary: string; testIssueIds: string[] }>;
   testPlans: Array<{ key: string; issueId: string; summary: string; testIssueIds: string[] }>;
   testSetAdditions: Array<{ testSetIssueId: string; testIssueIds: string[] }>;
+  testSetRemovals: Array<{ testSetIssueId: string; testIssueIds: string[] }>;
   planExecutionLinks: Array<{ testPlanIssueId: string; testExecutionIssueId: string }>;
+  supersessions: SupersedeTestIssueInput[];
 }
 
 /**
@@ -20,7 +22,15 @@ interface StubRecords {
 export class StubXrayClient implements XraySyncPort {
   readonly mode = 'stub' as const;
   private counter = 0;
-  private readonly records: StubRecords = { tests: [], testSets: [], testPlans: [], testSetAdditions: [], planExecutionLinks: [] };
+  private readonly records: StubRecords = {
+    tests: [],
+    testSets: [],
+    testPlans: [],
+    testSetAdditions: [],
+    testSetRemovals: [],
+    planExecutionLinks: [],
+    supersessions: [],
+  };
 
   private nextIssueId(): string {
     this.counter += 1;
@@ -32,7 +42,10 @@ export class StubXrayClient implements XraySyncPort {
   }
 
   async pushTestCase(input: PushTestCaseInput): Promise<XrayTestIssueRef> {
-    const key = `STUB-${input.testCase.id}`;
+    // A real Jira/Xray assigns a globally-unique key per issue; mirror that with a
+    // monotonic sequence. testCaseId alone collides (each story restarts at TC-1),
+    // so the sequence suffix is what guarantees uniqueness while keeping the id readable.
+    const key = `STUB-${input.testCase.id}-${this.records.tests.length + 1}`;
     const issueId = this.nextIssueId();
     this.records.tests.push({ key, issueId, storyId: input.storyId, testCaseId: input.testCase.id, title: input.testCase.title });
     await this.persist();
@@ -68,5 +81,20 @@ export class StubXrayClient implements XraySyncPort {
     this.records.planExecutionLinks.push({ testPlanIssueId, testExecutionIssueId });
     await this.persist();
     logger.info({ testPlanIssueId, testExecutionIssueId }, '[jira-xray-sync] (stub) test execution linked to test plan');
+  }
+
+  async supersedeTestIssue(input: SupersedeTestIssueInput): Promise<void> {
+    this.records.supersessions.push(input);
+    if (input.testSetIssueId && input.oldIssueId) {
+      await this.removeTestsFromTestSet(input.testSetIssueId, [input.oldIssueId]);
+    }
+    await this.persist();
+    logger.info({ oldKey: input.oldKey, newKey: input.newKey, reason: input.reason }, '[jira-xray-sync] (stub) test issue superseded');
+  }
+
+  async removeTestsFromTestSet(testSetIssueId: string, testIssueIds: string[]): Promise<void> {
+    this.records.testSetRemovals.push({ testSetIssueId, testIssueIds });
+    await this.persist();
+    logger.info({ testSetIssueId, removedCount: testIssueIds.length }, '[jira-xray-sync] (stub) tests removed from test set');
   }
 }
