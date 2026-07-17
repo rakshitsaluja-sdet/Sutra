@@ -28,6 +28,7 @@ import { getRegistryEntry, registryKeyForInput } from '../stages/03-jira-xray-sy
 import { runSandboxRunner } from '../stages/05-sandbox-runner/index.js';
 import { runSelfHealer } from '../stages/06-self-healer/index.js';
 import { runReportWriteback } from '../stages/07-report-writeback/index.js';
+import { runBlockedWriteback } from '../stages/07-report-writeback/blockedWriteback.js';
 import { writeFileEnsuringDir } from '../utils/fsSafe.js';
 import { acquirePipelineLock } from './lock.js';
 import { logger } from '../utils/logger.js';
@@ -90,6 +91,24 @@ function cachedTestCaseToRunnable(cached: CachedTestCase, storyLineageId: Lineag
           }
         : undefined,
   };
+}
+
+/** Persist the run's story/test-case snapshots and the lineage graph, then sanity-check for dangling refs. */
+async function finalizeGraph(
+  graph: LineageGraph,
+  allStories: Array<{ lineageId: LineageId; title: string }>,
+  allRunnableTestCases: RunnableTestCase[],
+): Promise<void> {
+  await writeFileEnsuringDir('generated/lineage/stories.json', JSON.stringify(allStories, null, 2));
+  await writeFileEnsuringDir('generated/lineage/testcases.json', JSON.stringify(allRunnableTestCases.map((t) => t.testCase), null, 2));
+
+  const store = new JsonFileLineageStore('generated/lineage/graph.json');
+  await store.save(graph);
+
+  const validation = validateGraph(graph);
+  if (validation.orphanParentRefs.length > 0) {
+    logger.error({ orphans: validation.orphanParentRefs }, '=== Lineage graph has dangling references — investigate before trusting this run ===');
+  }
 }
 
 export async function runPipeline(options: PipelineOptions): Promise<void> {
@@ -294,7 +313,22 @@ async function runPipelineInner(options: PipelineOptions): Promise<void> {
     // keeps two same-numbered cases from colliding on one feature directory.
     const stablePathKey = `${primary.clauseId}/${primary.storyId}/${primary.testCase.id}`;
     const generated = await runScriptGenerator(primary, stablePathKey, graph, config, primary.cachedScript?.featureLineageId);
-    script = generated;
+
+    if (generated.status === 'blocked') {
+      // Grounding-safety: no honest script could be produced (target unreachable, or
+      // the feature isn't implemented). Record it as BLOCKED and stop — there is no
+      // sandbox run to do, and we never fabricate a pass or a fail.
+      await runBlockedWriteback(primary, generated, xraySync.testPlanIssueId, graph, config);
+      await finalizeGraph(graph, allStories, allRunnableTestCases);
+      logger.warn(
+        { kind: generated.kind, reason: generated.reason, clauseCount: input.clauses.length },
+        '=== QA Pipeline complete — primary test BLOCKED (feature could not be grounded) ===',
+      );
+      process.exitCode = 0;
+      return;
+    }
+
+    script = generated.script;
 
     // Persist the freshly generated script's paths back into this test case's cache entry.
     const key = clauseCacheKey(options.inputPath, port.mode, primary.clauseId);
@@ -303,13 +337,13 @@ async function runPipelineInner(options: PipelineOptions): Promise<void> {
       for (const story of entry.stories) {
         const tc = story.testCases.find((t) => t.lineageId === primary.lineageId);
         if (tc) {
-          tc.featurePath = generated.featurePath;
-          tc.stepDefPath = generated.stepDefPath;
-          tc.pageObjectPath = generated.pageObjectPath;
-          tc.utilPaths = generated.utilPaths;
-          tc.featureLineageId = generated.featureLineageId;
-          tc.stepDefLineageId = generated.stepDefLineageId;
-          tc.pageObjectLineageId = generated.pageObjectLineageId;
+          tc.featurePath = generated.script.featurePath;
+          tc.stepDefPath = generated.script.stepDefPath;
+          tc.pageObjectPath = generated.script.pageObjectPath;
+          tc.utilPaths = generated.script.utilPaths;
+          tc.featureLineageId = generated.script.featureLineageId;
+          tc.stepDefLineageId = generated.script.stepDefLineageId;
+          tc.pageObjectLineageId = generated.script.pageObjectLineageId;
         }
       }
       await saveCacheEntry(key, entry);
@@ -322,16 +356,7 @@ async function runPipelineInner(options: PipelineOptions): Promise<void> {
 
   const report = await runReportWriteback(sandbox.run, script.featureLineageId, primary, xraySync.testPlanIssueId, graph, config);
 
-  await writeFileEnsuringDir('generated/lineage/stories.json', JSON.stringify(allStories, null, 2));
-  await writeFileEnsuringDir('generated/lineage/testcases.json', JSON.stringify(allRunnableTestCases.map((t) => t.testCase), null, 2));
-
-  const store = new JsonFileLineageStore('generated/lineage/graph.json');
-  await store.save(graph);
-
-  const validation = validateGraph(graph);
-  if (validation.orphanParentRefs.length > 0) {
-    logger.error({ orphans: validation.orphanParentRefs }, '=== Lineage graph has dangling references — investigate before trusting this run ===');
-  }
+  await finalizeGraph(graph, allStories, allRunnableTestCases);
 
   logger.info(
     {

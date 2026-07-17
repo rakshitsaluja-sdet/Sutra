@@ -3,11 +3,17 @@ import { authenticateXray } from '../03-jira-xray-sync/xrayAuth.js';
 import { writeFileEnsuringDir } from '../../utils/fsSafe.js';
 import { logger } from '../../utils/logger.js';
 
+/** BLOCKED = grounding-safety could not honestly test the feature (unreachable / not implemented). */
+export type ExecStatus = 'PASSED' | 'FAILED' | 'BLOCKED';
+
 export interface ExecutionResultInput {
   testExecutionSummary: string;
   projectKey: string;
-  results: Array<{ testKey: string; status: 'PASSED' | 'FAILED'; comment?: string }>;
+  results: Array<{ testKey: string; status: ExecStatus; comment?: string }>;
 }
+
+// Xray Cloud ships no default "BLOCKED" status, but does ship "ABORTED" — map onto it for the live import.
+const XRAY_STATUS: Record<ExecStatus, string> = { PASSED: 'PASSED', FAILED: 'FAILED', BLOCKED: 'ABORTED' };
 
 export interface ExecutionImportResult {
   mode: 'stub' | 'live';
@@ -32,7 +38,7 @@ export async function importExecutionResults(input: ExecutionResultInput, config
   const token = await authenticateXray(config);
   const body = {
     info: { summary: input.testExecutionSummary, project: input.projectKey },
-    tests: input.results.map((r) => ({ testKey: r.testKey, status: r.status, comment: r.comment ?? '' })),
+    tests: input.results.map((r) => ({ testKey: r.testKey, status: XRAY_STATUS[r.status], comment: r.comment ?? '' })),
   };
 
   const response = await fetch(IMPORT_URL, {

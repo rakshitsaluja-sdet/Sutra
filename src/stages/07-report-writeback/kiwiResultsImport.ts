@@ -2,17 +2,17 @@ import { resolve } from 'node:path';
 import type { AppConfig } from '../../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { KiwiRpc } from '../03-jira-xray-sync/kiwiRpc.js';
+import type { ExecStatus } from './xrayResultsImport.js';
 
 // Verified against a fresh Kiwi instance's seed data.
-const EXEC_STATUS_PASSED = 4;
-const EXEC_STATUS_FAILED = 5;
+const EXEC_STATUS_ID: Record<ExecStatus, number> = { PASSED: 4, FAILED: 5, BLOCKED: 6 };
 
 export interface KiwiResultsInput {
   planId: string; // Kiwi TestPlan id
   caseId: string; // Kiwi TestCase id of the automated (primary) case
-  passed: boolean;
+  status: ExecStatus;
   summary: string;
-  evidenceZipPath: string;
+  evidenceZipPath?: string;
 }
 
 export interface KiwiResultsOutput {
@@ -54,21 +54,23 @@ export async function importKiwiResults(input: KiwiResultsInput, config: AppConf
   // Adding a case to the run creates its TestExecution(s); set the status on each.
   const executions = await rpc.call<Array<{ id: number }> | { id: number }>('TestRun.add_case', [run.id, Number(input.caseId)]);
   const execList = Array.isArray(executions) ? executions : [executions];
-  const status = input.passed ? EXEC_STATUS_PASSED : EXEC_STATUS_FAILED;
+  const statusId = EXEC_STATUS_ID[input.status];
   for (const exec of execList) {
-    await rpc.call('TestExecution.update', [exec.id, { status }]).catch((err: unknown) => logger.warn({ err }, '[report-writeback] (kiwi) status update failed'));
+    await rpc.call('TestExecution.update', [exec.id, { status: statusId }]).catch((err: unknown) => logger.warn({ err }, '[report-writeback] (kiwi) status update failed'));
   }
 
   // Evidence is best-effort: a local archive has no served URL, so record its
   // path as a comment on the execution rather than a (rejected) file:// link.
-  const evidenceNote = `Sutra evidence archive: ${resolve(input.evidenceZipPath)}`;
-  for (const exec of execList) {
-    await rpc
-      .call('TestExecution.add_comment', [exec.id, evidenceNote])
-      .catch((err: unknown) => logger.warn({ err }, '[report-writeback] (kiwi) evidence comment failed (non-fatal)'));
+  if (input.evidenceZipPath) {
+    const evidenceNote = `Sutra evidence archive: ${resolve(input.evidenceZipPath)}`;
+    for (const exec of execList) {
+      await rpc
+        .call('TestExecution.add_comment', [exec.id, evidenceNote])
+        .catch((err: unknown) => logger.warn({ err }, '[report-writeback] (kiwi) evidence comment failed (non-fatal)'));
+    }
   }
 
   await rpc.logout();
-  logger.info({ runId: run.id, status: input.passed ? 'PASSED' : 'FAILED' }, '[report-writeback] (kiwi) test run recorded');
+  logger.info({ runId: run.id, status: input.status }, '[report-writeback] (kiwi) test run recorded');
   return { payloadRef: `kiwi:testrun:${run.id}`, runKey: `KIWI-RUN-${run.id}` };
 }

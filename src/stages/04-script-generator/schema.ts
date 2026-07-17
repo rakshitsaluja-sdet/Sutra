@@ -8,8 +8,14 @@ export const GeneratedFileSchema = z.object({
 });
 
 export const ScriptGeneratorOutputSchema = z.object({
-  featureFile: GeneratedFileSchema,
-  stepDefinitionsFile: GeneratedFileSchema,
+  cannotGround: z
+    .object({ reason: z.string() })
+    .nullable()
+    .describe(
+      'Escape hatch. Set this (with a concrete reason) and leave the file fields null ONLY if, after actually navigating the real target app, the feature under test is not present / not implemented / not reachable, so a script cannot be honestly grounded. Never fabricate selectors to avoid using this. Otherwise set to null.',
+    ),
+  featureFile: GeneratedFileSchema.nullable(),
+  stepDefinitionsFile: GeneratedFileSchema.nullable(),
   pageObjectFile: GeneratedFileSchema.nullable(),
   utilFiles: z.array(GeneratedFileSchema),
   reusedExistingFiles: z

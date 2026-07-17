@@ -9,6 +9,7 @@ import { writeFileEnsuringDir } from '../../utils/fsSafe.js';
 import { logger } from '../../utils/logger.js';
 import { loadPrompt } from '../../utils/prompts.js';
 import type { SyncedTestCase } from '../03-jira-xray-sync/agent.js';
+import { checkReachable } from './reachability.js';
 import { ScriptGeneratorOutputSchema } from './schema.js';
 
 const GENERATED_ROOT = 'generated';
@@ -24,6 +25,15 @@ export interface GeneratedScript {
   pageObjectPath?: string;
   utilPaths: string[];
 }
+
+/** Grounding-safety: when the target feature can't be honestly grounded, we do not fabricate a script. */
+export interface BlockedGrounding {
+  status: 'blocked';
+  kind: 'unreachable' | 'cannot-ground';
+  reason: string;
+}
+
+export type ScriptGenerationResult = { status: 'generated'; script: GeneratedScript } | BlockedGrounding;
 
 async function listExisting(dir: string): Promise<string[]> {
   try {
@@ -47,7 +57,14 @@ export async function runScriptGenerator(
   graph: LineageGraph,
   config: AppConfig,
   supersedesFeatureLineageId?: LineageId,
-): Promise<GeneratedScript> {
+): Promise<ScriptGenerationResult> {
+  // Grounding-safety pre-flight: if the target app isn't even up, don't spend an
+  // LLM pass hallucinating a script — mark it blocked so it surfaces as untested.
+  const reach = await checkReachable(config.targetBaseUrl);
+  if (!reach.reachable) {
+    return { status: 'blocked', kind: 'unreachable', reason: `Target app unreachable (${reach.detail})` };
+  }
+
   // Wholesale-replace this test case's own directory before regenerating — bounds the blast
   // radius to exactly this stable key, guarantees zero orphans, no cross-clause risk. Test-case
   // shape isn't guaranteed stable across regenerations, so reconciling old-vs-new slots is fragile;
@@ -98,6 +115,17 @@ export async function runScriptGenerator(
     maxTurns: 20,
   });
 
+  // Grounding-safety escape hatch: the model navigated the real app and reported
+  // the feature can't be honestly grounded (not implemented/present). Do not write
+  // a fabricated script — surface it as blocked.
+  if (output.cannotGround) {
+    logger.warn({ testCaseId: synced.testCase.id, reason: output.cannotGround.reason }, '[script-generator] model could not ground this feature — blocking');
+    return { status: 'blocked', kind: 'cannot-ground', reason: output.cannotGround.reason };
+  }
+  if (!output.featureFile || !output.stepDefinitionsFile) {
+    return { status: 'blocked', kind: 'cannot-ground', reason: 'Model returned neither a grounded script nor a cannotGround reason' };
+  }
+
   const featurePath = join(GENERATED_ROOT, output.featureFile.relativePath);
   const stepDefPath = join(GENERATED_ROOT, output.stepDefinitionsFile.relativePath);
   await writeFileEnsuringDir(featurePath, output.featureFile.content);
@@ -145,14 +173,17 @@ export async function runScriptGenerator(
   logger.info({ testCaseId: synced.testCase.id, featurePath }, '[script-generator] script generated and grounded via Playwright MCP');
 
   return {
-    testCaseId: synced.testCase.id,
-    xrayKey: synced.xrayKey,
-    featureLineageId,
-    stepDefLineageId,
-    pageObjectLineageId,
-    featurePath,
-    stepDefPath,
-    pageObjectPath,
-    utilPaths,
+    status: 'generated',
+    script: {
+      testCaseId: synced.testCase.id,
+      xrayKey: synced.xrayKey,
+      featureLineageId,
+      stepDefLineageId,
+      pageObjectLineageId,
+      featurePath,
+      stepDefPath,
+      pageObjectPath,
+      utilPaths,
+    },
   };
 }

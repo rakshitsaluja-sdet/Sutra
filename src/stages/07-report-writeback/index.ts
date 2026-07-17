@@ -55,7 +55,7 @@ export async function runReportWriteback(
         {
           planId: testPlanIssueId,
           caseId: primary.xrayIssueId,
-          passed: run.passed,
+          status: run.passed ? 'PASSED' : 'FAILED',
           summary: `Sutra run ${graph.runId} — ${run.passed ? 'PASSED' : 'FAILED'}`,
           evidenceZipPath: archiveZipPath,
         },

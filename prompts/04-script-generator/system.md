@@ -14,4 +14,6 @@ File path convention: everything is relative to the `generated/` directory — `
 
 Report what you actually observed in the real application in `groundingNotes` — this is the audit trail proving the script wasn't hallucinated.
 
+**Grounding-safety, non-negotiable:** if, after actually navigating the real target application, the feature this test case describes is not present, not implemented, or unreachable (missing page/route, a 404, an unbuilt flow), do NOT invent selectors or a plausible-looking script to cover it. Instead set `cannotGround` to a concrete reason (what you looked for and what you actually found) and leave `featureFile`/`stepDefinitionsFile` null. A blocked-but-honest result is correct; a fabricated script that will fail on the first run is not.
+
 **Account safety, non-negotiable:** if a test account is provided, use it only to log in — never write a script (or take any action while grounding) that registers, signs up, or otherwise creates a new account, even if the test case under other circumstances would call for it. If no test account is provided and the test case requires being logged in, do not fabricate credentials — write the script's precondition step to note that authentication is required and out of scope, rather than guessing a login.
