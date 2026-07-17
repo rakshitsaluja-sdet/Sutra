@@ -1,0 +1,54 @@
+# Local, self-hosted Kiwi TCMS — the free, permanent alternative to Xray for
+# Sutra's "Case 2" (a second test-management backend behind the same port).
+#
+# Based on the official Kiwi TCMS compose (github.com/kiwitcms/Kiwi), trimmed to
+# the two services you actually need — the upstream file also ships a test-only
+# nginx reverse proxy, omitted here.
+#
+# LOCAL DEV ONLY. The passwords below are throwaway; the web UI serves on
+# https://localhost with a self-signed certificate (HTTPS is enforced by Kiwi).
+# Ports are bound to 127.0.0.1 so nothing is exposed on your network.
+#
+# Bring it up:   docker compose -f docker/kiwi/docker-compose.yml up -d
+# Initialise:    docker exec -it kiwi_web /Kiwi/manage.py initial_setup
+#                (creates the DB schema and walks you through making the admin user)
+# Then open:     https://localhost   (accept the self-signed cert warning)
+# Tear down:     docker compose -f docker/kiwi/docker-compose.yml down
+#   (add -v to also wipe the database + uploads volumes)
+
+services:
+  db:
+    container_name: kiwi_db
+    image: mariadb:latest
+    environment:
+      MYSQL_ROOT_PASSWORD: kiwi-root-pw
+      MYSQL_DATABASE: kiwi
+      MYSQL_USER: kiwi
+      MYSQL_PASSWORD: kiwi-pw
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: unless-stopped
+
+  web:
+    container_name: kiwi_web
+    image: pub.kiwitcms.eu/kiwitcms/kiwi:latest
+    depends_on:
+      - db
+    ports:
+      - "127.0.0.1:443:8443" # https://localhost (self-signed)
+      - "127.0.0.1:80:8080" # http -> redirects to https
+    environment:
+      KIWI_DB_HOST: db
+      KIWI_DB_PORT: 3306
+      KIWI_DB_NAME: kiwi
+      KIWI_DB_USER: kiwi
+      KIWI_DB_PASSWORD: kiwi-pw
+    volumes:
+      - uploads:/Kiwi/uploads:Z
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  uploads:
