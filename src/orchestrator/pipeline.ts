@@ -4,6 +4,7 @@ import { createGraph, markStale, validateGraph } from '../lineage/graph.js';
 import { JsonFileLineageStore } from '../lineage/store.js';
 import type { LineageGraph, LineageId } from '../lineage/types.js';
 import { loadAndSplitInput, runRequirementAnalystForClause } from '../stages/01-requirement-analyst/agent.js';
+import { loadFromJira, type JiraSource } from '../stages/01-requirement-analyst/jiraInputSource.js';
 import {
   clauseCacheKey,
   getCacheEntry,
@@ -34,8 +35,11 @@ import { acquirePipelineLock } from './lock.js';
 import { logger } from '../utils/logger.js';
 
 export interface PipelineOptions {
+  /** Stable identity for this input (a file path, or `jira:KEY` when reading from Jira). */
   inputPath: string;
   inputType: InputType | 'auto';
+  /** When set, requirements are read from Jira instead of the local file at inputPath. */
+  jiraSource?: JiraSource;
   /** Test cases whose title contains any of these (case-insensitive) are never auto-selected as primary. */
   excludeKeywords?: string[];
 }
@@ -130,7 +134,9 @@ async function runPipelineInner(options: PipelineOptions): Promise<void> {
 
   logger.info({ inputPath: options.inputPath }, '=== QA Pipeline starting ===');
 
-  const input = await loadAndSplitInput(options.inputPath, options.inputType);
+  const input = options.jiraSource
+    ? await loadFromJira(config, options.jiraSource)
+    : await loadAndSplitInput(options.inputPath, options.inputType);
   graph.inputType = input.inputType;
   graph.inputHash = input.inputHash;
 
